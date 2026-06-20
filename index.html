@@ -1,0 +1,408 @@
+# Video Editor
+
+手機與電腦可用的簡易影片剪輯器。
+
+## 使用方式
+
+1. 上傳 `index.html` 到 GitHub repository 根目錄。
+2. 開啟 GitHub Pages。
+3. 用瀏覽器開啟網站。
+4. 選擇影片，輸入開始與結束秒數，輸出 MP4。
+
+第一次使用需要網路載入 FFmpeg。
+
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>影片剪輯器</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Noto Sans TC", sans-serif;
+      background: linear-gradient(180deg, #eef3ff, #f7f8fc);
+      color: #1f2937;
+    }
+    .wrap { max-width: 920px; margin: auto; padding: 18px; }
+    .card {
+      background: white;
+      border-radius: 22px;
+      padding: 22px;
+      margin: 16px 0;
+      box-shadow: 0 14px 42px rgba(31,41,55,.12);
+    }
+    h1 { margin: 0 0 10px; font-size: clamp(28px, 6vw, 42px); }
+    p { color: #5f6b7a; line-height: 1.75; }
+    .note {
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      color: #1e3a8a;
+      padding: 13px;
+      border-radius: 16px;
+      line-height: 1.7;
+    }
+    label { display: block; font-weight: 800; margin: 18px 0 8px; }
+    input, select {
+      width: 100%;
+      border: 1px solid #d7dce8;
+      border-radius: 14px;
+      padding: 13px;
+      font-size: 16px;
+      background: white;
+    }
+    video {
+      width: 100%;
+      background: #050914;
+      border-radius: 18px;
+      margin-top: 14px;
+      max-height: 520px;
+    }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+    .btns { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 18px; }
+    button, a.download {
+      border: 0;
+      border-radius: 14px;
+      padding: 13px 16px;
+      font-size: 16px;
+      font-weight: 800;
+      cursor: pointer;
+      text-decoration: none;
+      text-align: center;
+    }
+    button { background: #2563eb; color: white; }
+    button.secondary { background: #edf1f7; color: #243043; }
+    button.danger { background: #d92d20; color: white; }
+    button:disabled { opacity: .55; cursor: not-allowed; }
+    a.download { background: #15965d; color: white; display: inline-block; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .chip { background: #f3f4f6; border-radius: 999px; padding: 8px 10px; color: #374151; font-size: 14px; }
+    .status {
+      white-space: pre-wrap;
+      margin-top: 16px;
+      padding: 14px;
+      border-radius: 16px;
+      background: #f8fafc;
+      border: 1px solid #e5e7eb;
+      line-height: 1.7;
+      color: #374151;
+    }
+    .bar { width: 100%; height: 12px; background: #e5e7eb; border-radius: 999px; margin-top: 12px; overflow: hidden; }
+    .bar > div { height: 100%; width: 0%; background: #2563eb; transition: width .2s; }
+    .small { font-size: 14px; color: #6b7280; }
+    @media (max-width: 640px) {
+      .wrap { padding: 10px; }
+      .card { padding: 18px; border-radius: 18px; }
+      .grid { grid-template-columns: 1fr; }
+      button, a.download { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+<main class="wrap">
+  <section class="card">
+    <h1>影片剪輯器</h1>
+    <p>手機、平板、電腦都能用。選影片，輸入開始與結束秒數，直接輸出 MP4。</p>
+    <div class="note">
+      第一次使用需要連網載入 FFmpeg。影片只在你的裝置上處理，不會上傳。
+    </div>
+  </section>
+
+  <section class="card">
+    <label>1. 選擇影片</label>
+    <input id="file" type="file" accept="video/*,.mp4,.mov,.m4v,.webm" />
+
+    <video id="preview" controls playsinline webkit-playsinline preload="metadata"></video>
+
+    <div class="chips">
+      <span class="chip" id="nameChip">檔名：尚未選擇</span>
+      <span class="chip" id="durationChip">影片長度：可手動輸入</span>
+      <span class="chip" id="sizeChip">檔案大小：尚未選擇</span>
+    </div>
+
+    <label>2. 設定剪輯時間</label>
+    <div class="grid">
+      <div>
+        <label>開始時間（秒）</label>
+        <input id="start" type="number" min="0" step="0.1" value="0" />
+      </div>
+      <div>
+        <label>結束時間（秒）</label>
+        <input id="end" type="number" min="0.1" step="0.1" value="5" />
+      </div>
+    </div>
+
+    <div class="btns">
+      <button class="secondary" id="markStart">目前播放位置設為開始</button>
+      <button class="secondary" id="markEnd">目前播放位置設為結束</button>
+      <button class="secondary" id="previewRange">預覽剪輯區間</button>
+    </div>
+
+    <label>3. 輸出模式</label>
+    <select id="mode">
+      <option value="copy">快速剪輯：較快，不重新編碼，起點可能略有誤差</option>
+      <option value="encode">精準剪輯：較慢，重新編碼，時間較準</option>
+    </select>
+
+    <div class="btns">
+      <button id="cut" disabled>剪出影片</button>
+      <button id="reset" class="danger">清除</button>
+      <a id="download" class="download" style="display:none;" download="clip.mp4">下載剪好的影片</a>
+    </div>
+
+    <div class="bar"><div id="progress"></div></div>
+    <div id="status" class="status">請先選擇影片。</div>
+
+    <p class="small">
+      手機記憶體有限，建議先剪 5～30 秒片段測試。大檔案請用電腦版 Chrome / Edge。
+    </p>
+  </section>
+</main>
+
+<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<script>
+const fileInput = document.getElementById("file");
+const preview = document.getElementById("preview");
+const startInput = document.getElementById("start");
+const endInput = document.getElementById("end");
+const cutBtn = document.getElementById("cut");
+const resetBtn = document.getElementById("reset");
+const downloadLink = document.getElementById("download");
+const statusBox = document.getElementById("status");
+const progress = document.getElementById("progress");
+const nameChip = document.getElementById("nameChip");
+const durationChip = document.getElementById("durationChip");
+const sizeChip = document.getElementById("sizeChip");
+const modeSelect = document.getElementById("mode");
+const markStartBtn = document.getElementById("markStart");
+const markEndBtn = document.getElementById("markEnd");
+const previewRangeBtn = document.getElementById("previewRange");
+
+let ffmpeg = null;
+let file = null;
+let fileUrl = null;
+let resultUrl = null;
+let previewTimer = null;
+
+function status(msg) { statusBox.textContent = msg; }
+function setProgress(n) { progress.style.width = Math.max(0, Math.min(100, n)) + "%"; }
+
+function formatBytes(bytes) {
+  const units = ["B", "KB", "MB", "GB"];
+  let v = bytes || 0;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return v.toFixed(i === 0 ? 0 : 1) + " " + units[i];
+}
+
+function extOf(name) {
+  const x = name.split(".").pop().toLowerCase();
+  return x || "mp4";
+}
+
+async function toBlobURL(url, mimeType) {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("無法下載 FFmpeg 檔案：" + url);
+  const data = await response.blob();
+  return URL.createObjectURL(new Blob([data], { type: mimeType }));
+}
+
+async function loadFFmpeg() {
+  if (ffmpeg && ffmpeg.loaded) return;
+
+  if (!window.FFmpegWASM) {
+    throw new Error("FFmpeg 程式庫沒有載入。請確認網路正常。");
+  }
+
+  const { FFmpeg } = FFmpegWASM;
+  ffmpeg = new FFmpeg();
+
+  ffmpeg.on("log", ({ message }) => {
+    console.log(message);
+  });
+
+  ffmpeg.on("progress", ({ progress }) => {
+    if (Number.isFinite(progress)) setProgress(Math.round(progress * 100));
+  });
+
+  status("正在載入 FFmpeg 核心……第一次會比較久。");
+  setProgress(5);
+
+  const ffmpegBase = "https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd";
+  const coreBase = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
+
+  await ffmpeg.load({
+    classWorkerURL: await toBlobURL(`${ffmpegBase}/814.ffmpeg.js`, "text/javascript"),
+    coreURL: await toBlobURL(`${coreBase}/ffmpeg-core.js`, "text/javascript"),
+    wasmURL: await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, "application/wasm")
+  });
+
+  setProgress(0);
+  status("FFmpeg 載入完成。");
+}
+
+function attachPreview() {
+  if (!file) return;
+  if (fileUrl) URL.revokeObjectURL(fileUrl);
+  fileUrl = URL.createObjectURL(file);
+  preview.src = fileUrl;
+  preview.load();
+}
+
+fileInput.addEventListener("change", () => {
+  file = fileInput.files && fileInput.files[0];
+  if (!file) return;
+
+  nameChip.textContent = "檔名：" + file.name;
+  sizeChip.textContent = "檔案大小：" + formatBytes(file.size);
+  durationChip.textContent = "影片長度：讀取中，可手動輸入";
+  cutBtn.disabled = false;
+  downloadLink.style.display = "none";
+  setProgress(0);
+
+  attachPreview();
+  status("已選擇影片。若預覽讀不到，也可直接手動輸入秒數剪輯。");
+});
+
+preview.addEventListener("loadedmetadata", () => {
+  if (Number.isFinite(preview.duration) && preview.duration > 0) {
+    durationChip.textContent = "影片長度：約 " + preview.duration.toFixed(2) + " 秒";
+    endInput.value = Math.min(5, preview.duration).toFixed(1);
+    status("影片預覽已讀取成功。可以開始剪輯。");
+  }
+});
+
+preview.addEventListener("error", () => {
+  status("預覽讀取失敗，但仍可嘗試剪輯。請直接輸入開始與結束秒數。");
+  cutBtn.disabled = !file;
+});
+
+markStartBtn.addEventListener("click", () => {
+  startInput.value = (preview.currentTime || 0).toFixed(1);
+});
+
+markEndBtn.addEventListener("click", () => {
+  endInput.value = (preview.currentTime || 0).toFixed(1);
+});
+
+previewRangeBtn.addEventListener("click", async () => {
+  const start = Number(startInput.value);
+  const end = Number(endInput.value);
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
+    alert("請先設定正確時間。");
+    return;
+  }
+  if (previewTimer) clearInterval(previewTimer);
+  preview.currentTime = start;
+  await preview.play();
+  previewTimer = setInterval(() => {
+    if (preview.currentTime >= end) {
+      preview.pause();
+      clearInterval(previewTimer);
+      previewTimer = null;
+    }
+  }, 100);
+});
+
+cutBtn.addEventListener("click", async () => {
+  if (!file) {
+    alert("請先選擇影片。");
+    return;
+  }
+
+  const start = Number(startInput.value);
+  const end = Number(endInput.value);
+  const duration = end - start;
+
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start < 0 || end <= start) {
+    alert("請確認開始與結束時間。結束時間必須大於開始時間。");
+    return;
+  }
+
+  cutBtn.disabled = true;
+  downloadLink.style.display = "none";
+  setProgress(0);
+
+  try {
+    await loadFFmpeg();
+
+    const inputName = "input." + extOf(file.name);
+    const outputName = "clip.mp4";
+
+    status("正在把影片載入剪輯器……");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+
+    try { await ffmpeg.deleteFile(inputName); } catch(e) {}
+    try { await ffmpeg.deleteFile(outputName); } catch(e) {}
+
+    await ffmpeg.writeFile(inputName, bytes);
+
+    let args;
+    if (modeSelect.value === "copy") {
+      args = ["-ss", String(start), "-i", inputName, "-t", String(duration), "-c", "copy", "-movflags", "faststart", outputName];
+      status("正在快速剪輯……");
+    } else {
+      args = [
+        "-ss", String(start),
+        "-i", inputName,
+        "-t", String(duration),
+        "-c:v", "libx264",
+        "-preset", "ultrafast",
+        "-crf", "23",
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-movflags", "faststart",
+        outputName
+      ];
+      status("正在精準剪輯並重新編碼……");
+    }
+
+    await ffmpeg.exec(args);
+
+    const output = await ffmpeg.readFile(outputName);
+    const blob = new Blob([output.buffer], { type: "video/mp4" });
+
+    if (resultUrl) URL.revokeObjectURL(resultUrl);
+    resultUrl = URL.createObjectURL(blob);
+
+    downloadLink.href = resultUrl;
+    downloadLink.download = "clip_" + Date.now() + ".mp4";
+    downloadLink.style.display = "inline-block";
+    setProgress(100);
+    status("完成！請按「下載剪好的影片」。");
+
+  } catch (err) {
+    setProgress(0);
+    status(
+      "剪輯失敗：\n" +
+      (err && err.message ? err.message : String(err)) +
+      "\n\n建議：\n" +
+      "1. 重新整理網頁再試一次\n" +
+      "2. 先測 5～10 秒片段\n" +
+      "3. 快速剪輯失敗就改精準剪輯\n" +
+      "4. 大影片請改用電腦版 Chrome / Edge"
+    );
+  } finally {
+    cutBtn.disabled = false;
+  }
+});
+
+resetBtn.addEventListener("click", () => {
+  fileInput.value = "";
+  file = null;
+  preview.removeAttribute("src");
+  preview.load();
+  nameChip.textContent = "檔名：尚未選擇";
+  durationChip.textContent = "影片長度：可手動輸入";
+  sizeChip.textContent = "檔案大小：尚未選擇";
+  startInput.value = "0";
+  endInput.value = "5";
+  downloadLink.style.display = "none";
+  cutBtn.disabled = true;
+  setProgress(0);
+  status("已清除。");
+});
+</script>
+</body>
+</html>
