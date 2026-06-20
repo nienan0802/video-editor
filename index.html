@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>影片剪輯器</title>
+  <title>影片剪輯器 v3</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -89,7 +89,7 @@
 <body>
 <main class="wrap">
   <section class="card">
-    <h1>影片剪輯器</h1>
+    <h1>影片剪輯器 v3</h1>
     <p>手機、平板、電腦都能用。選影片，輸入開始與結束秒數，直接輸出 MP4。</p>
     <div class="note">
       第一次使用需要連網載入 FFmpeg。影片只在你的裝置上處理，不會上傳。
@@ -123,7 +123,6 @@
     <div class="btns">
       <button class="secondary" id="markStart">目前播放位置設為開始</button>
       <button class="secondary" id="markEnd">目前播放位置設為結束</button>
-      <button class="secondary" id="previewRange">預覽剪輯區間</button>
     </div>
 
     <label>3. 輸出模式</label>
@@ -164,13 +163,11 @@ const sizeChip = document.getElementById("sizeChip");
 const modeSelect = document.getElementById("mode");
 const markStartBtn = document.getElementById("markStart");
 const markEndBtn = document.getElementById("markEnd");
-const previewRangeBtn = document.getElementById("previewRange");
 
 let ffmpeg = null;
 let file = null;
 let fileUrl = null;
 let resultUrl = null;
-let previewTimer = null;
 
 function status(msg) { statusBox.textContent = msg; }
 function setProgress(n) { progress.style.width = Math.max(0, Math.min(100, n)) + "%"; }
@@ -199,15 +196,13 @@ async function loadFFmpeg() {
   if (ffmpeg && ffmpeg.loaded) return;
 
   if (!window.FFmpegWASM) {
-    throw new Error("FFmpeg 程式庫沒有載入。請確認網路正常。");
+    throw new Error("FFmpeg 主程式沒有載入。請確認網路正常，或重新整理。");
   }
 
   const { FFmpeg } = FFmpegWASM;
   ffmpeg = new FFmpeg();
 
-  ffmpeg.on("log", ({ message }) => {
-    console.log(message);
-  });
+  ffmpeg.on("log", ({ message }) => console.log(message));
 
   ffmpeg.on("progress", ({ progress }) => {
     if (Number.isFinite(progress)) setProgress(Math.round(progress * 100));
@@ -219,10 +214,16 @@ async function loadFFmpeg() {
   const ffmpegBase = "https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd";
   const coreBase = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
 
+  const classWorkerURL = await toBlobURL(`${ffmpegBase}/814.ffmpeg.js`, "text/javascript");
+  const coreURL = await toBlobURL(`${coreBase}/ffmpeg-core.js`, "text/javascript");
+  const wasmURL = await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, "application/wasm");
+  const workerURL = await toBlobURL(`${coreBase}/ffmpeg-core.worker.js`, "text/javascript");
+
   await ffmpeg.load({
-    classWorkerURL: await toBlobURL(`${ffmpegBase}/814.ffmpeg.js`, "text/javascript"),
-    coreURL: await toBlobURL(`${coreBase}/ffmpeg-core.js`, "text/javascript"),
-    wasmURL: await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, "application/wasm")
+    classWorkerURL,
+    coreURL,
+    wasmURL,
+    workerURL
   });
 
   setProgress(0);
@@ -271,25 +272,6 @@ markStartBtn.addEventListener("click", () => {
 
 markEndBtn.addEventListener("click", () => {
   endInput.value = (preview.currentTime || 0).toFixed(1);
-});
-
-previewRangeBtn.addEventListener("click", async () => {
-  const start = Number(startInput.value);
-  const end = Number(endInput.value);
-  if (!Number.isFinite(start) || !Number.isFinite(end) || end <= start) {
-    alert("請先設定正確時間。");
-    return;
-  }
-  if (previewTimer) clearInterval(previewTimer);
-  preview.currentTime = start;
-  await preview.play();
-  previewTimer = setInterval(() => {
-    if (preview.currentTime >= end) {
-      preview.pause();
-      clearInterval(previewTimer);
-      previewTimer = null;
-    }
-  }, 100);
 });
 
 cutBtn.addEventListener("click", async () => {
@@ -365,7 +347,7 @@ cutBtn.addEventListener("click", async () => {
       "剪輯失敗：\n" +
       (err && err.message ? err.message : String(err)) +
       "\n\n建議：\n" +
-      "1. 重新整理網頁再試一次\n" +
+      "1. 按 Ctrl+F5 強制重新整理\n" +
       "2. 先測 5～10 秒片段\n" +
       "3. 快速剪輯失敗就改精準剪輯\n" +
       "4. 大影片請改用電腦版 Chrome / Edge"
