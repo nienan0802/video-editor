@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>影片剪輯器 v3</title>
+  <title>影片剪輯器 v4</title>
   <style>
     * { box-sizing: border-box; }
     body {
@@ -89,10 +89,10 @@
 <body>
 <main class="wrap">
   <section class="card">
-    <h1>影片剪輯器 v3</h1>
+    <h1>影片剪輯器 v4</h1>
     <p>手機、平板、電腦都能用。選影片，輸入開始與結束秒數，直接輸出 MP4。</p>
     <div class="note">
-      第一次使用需要連網載入 FFmpeg。影片只在你的裝置上處理，不會上傳。
+      v4 改用多 CDN 備援。第一次使用需要連網載入 FFmpeg；影片只在你的裝置上處理，不會上傳。
     </div>
   </section>
 
@@ -141,12 +141,12 @@
     <div id="status" class="status">請先選擇影片。</div>
 
     <p class="small">
-      手機記憶體有限，建議先剪 5～30 秒片段測試。大檔案請用電腦版 Chrome / Edge。
+      若仍出現 Failed to fetch，代表你的網路目前連不到 CDN。可換網路、關閉 VPN/廣告阻擋器，或改用本機 FFmpeg 檔案版。
     </p>
   </section>
 </main>
 
-<script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
 <script>
 const fileInput = document.getElementById("file");
 const preview = document.getElementById("preview");
@@ -170,6 +170,7 @@ let fileUrl = null;
 let resultUrl = null;
 
 function status(msg) { statusBox.textContent = msg; }
+function appendStatus(msg) { statusBox.textContent += "\n" + msg; }
 function setProgress(n) { progress.style.width = Math.max(0, Math.min(100, n)) + "%"; }
 
 function formatBytes(bytes) {
@@ -185,18 +186,38 @@ function extOf(name) {
   return x || "mp4";
 }
 
-async function toBlobURL(url, mimeType) {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("無法下載 FFmpeg 檔案：" + url);
-  const data = await response.blob();
-  return URL.createObjectURL(new Blob([data], { type: mimeType }));
+async function fetchWithTimeout(url, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal, cache: "no-store" });
+    if (!response.ok) throw new Error("HTTP " + response.status);
+    return await response.blob();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function toBlobURL(urls, mimeType, label) {
+  let lastErr = null;
+  for (const url of urls) {
+    try {
+      appendStatus("下載 " + label + "：\n" + url);
+      const data = await fetchWithTimeout(url);
+      return URL.createObjectURL(new Blob([data], { type: mimeType }));
+    } catch (err) {
+      lastErr = err;
+      appendStatus("失敗，改試下一個來源：" + (err && err.message ? err.message : String(err)));
+    }
+  }
+  throw new Error("無法下載 " + label + "。最後錯誤：" + (lastErr && lastErr.message ? lastErr.message : String(lastErr)));
 }
 
 async function loadFFmpeg() {
   if (ffmpeg && ffmpeg.loaded) return;
 
   if (!window.FFmpegWASM) {
-    throw new Error("FFmpeg 主程式沒有載入。請確認網路正常，或重新整理。");
+    throw new Error("FFmpeg 主程式沒有載入。請重新整理，或確認網路可連 jsDelivr。");
   }
 
   const { FFmpeg } = FFmpegWASM;
@@ -211,13 +232,27 @@ async function loadFFmpeg() {
   status("正在載入 FFmpeg 核心……第一次會比較久。");
   setProgress(5);
 
-  const ffmpegBase = "https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd";
-  const coreBase = "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd";
+  const classWorkerURL = await toBlobURL([
+    "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js",
+    "https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/814.ffmpeg.js"
+  ], "text/javascript", "FFmpeg class worker");
 
-  const classWorkerURL = await toBlobURL(`${ffmpegBase}/814.ffmpeg.js`, "text/javascript");
-  const coreURL = await toBlobURL(`${coreBase}/ffmpeg-core.js`, "text/javascript");
-  const wasmURL = await toBlobURL(`${coreBase}/ffmpeg-core.wasm`, "application/wasm");
-  const workerURL = await toBlobURL(`${coreBase}/ffmpeg-core.worker.js`, "text/javascript");
+  const coreURL = await toBlobURL([
+    "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.js",
+    "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.js"
+  ], "text/javascript", "ffmpeg-core.js");
+
+  const wasmURL = await toBlobURL([
+    "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.wasm",
+    "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.wasm"
+  ], "application/wasm", "ffmpeg-core.wasm");
+
+  const workerURL = await toBlobURL([
+    "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.worker.js",
+    "https://unpkg.com/@ffmpeg/core@0.12.10/dist/umd/ffmpeg-core.worker.js"
+  ], "text/javascript", "ffmpeg-core.worker.js");
+
+  appendStatus("正在啟動 FFmpeg……");
 
   await ffmpeg.load({
     classWorkerURL,
@@ -348,9 +383,9 @@ cutBtn.addEventListener("click", async () => {
       (err && err.message ? err.message : String(err)) +
       "\n\n建議：\n" +
       "1. 按 Ctrl+F5 強制重新整理\n" +
-      "2. 先測 5～10 秒片段\n" +
-      "3. 快速剪輯失敗就改精準剪輯\n" +
-      "4. 大影片請改用電腦版 Chrome / Edge"
+      "2. 換網路或關閉 VPN / 廣告阻擋器\n" +
+      "3. 先測 5～10 秒片段\n" +
+      "4. 若仍失敗，需要改成本機 FFmpeg 檔案版"
     );
   } finally {
     cutBtn.disabled = false;
